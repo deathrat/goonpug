@@ -48,7 +48,7 @@
 #include <gp_web>
 #include <gp_skill>
 
-#define GOONPUG_VERSION "1.0-beta"
+#define GOONPUG_VERSION "1.1-beta"
 #define MAX_ROUNDS 128
 #define MAX_CMD_LEN 32
 #define STEAMID_LEN 32
@@ -118,6 +118,9 @@ new Handle:hSaveScore = INVALID_HANDLE;
 new Handle:hSaveMvps = INVALID_HANDLE;
 
 new Handle:hEnforceRates = INVALID_HANDLE;
+
+new bool:g_abortVoteActive = false;
+
 #define MIN_RATE 128000
 #define MIN_CMDRATE 128
 #define MIN_UPDATERATE 128
@@ -156,6 +159,7 @@ public OnPluginStart()
     RegDotCmd("ready", Command_Ready, "Set yourself as ready.");
     RegDotCmd("unready", Command_Unready, "Set yourself as not ready.");
     RegDotCmd("notready", Command_Unready, "Set yourself as not ready.");
+    RegDotCmd("abort", Command_VoteAbort, "Start vote to abort match.");
 
     RegAdminCmd("sm_lo3", Command_Lo3, ADMFLAG_CHANGEMAP,
                 "Start a live match with the current teams.");
@@ -1048,6 +1052,14 @@ public Action:Command_Ready(client, args)
     return Plugin_Handled;
 }
 
+public Action:Command_VoteAbort(client, args)
+{
+    if(g_abortVoteActive == false)
+    {
+        StartAbortVote();
+    }
+}
+
 /**
  * Sets a player's ready up state to not ready
  */
@@ -1299,6 +1311,76 @@ Handle:BuildMapVoteMenu()
     return menu;
 }
 
+StartAbortVote()
+{
+    PrintToChatAll("[GP] Vote to abort has been started.");
+    new Handle:menu = CreateMenu(Menu_AbortVote);
+    SetMenuTitle(menu, "Abort match?");
+    AddMenuItem(menu, "Yes", "Yes");
+    AddMenuItem(menu, "No", "No");
+    SetMenuExitButton(menu, false);
+    SetVoteResultCallback(menu, VoteHandler_AbortVote);
+
+    new clientCount = 0;
+    new clients[MAXPLAYERS + 1];
+
+    for (new i = 0; i < GetArraySize(hTeam1); i++)
+    {
+        decl String:auth[STEAMID_LEN];
+        GetArrayString(hTeam1, i, auth, sizeof(auth));
+        new client = FindClientByAuthString(auth);
+        if (client > 0 && (GetClientTeam(client) == CS_TEAM_CT || GetClientTeam(client) == CS_TEAM_T))
+        {
+            clients[clientCount] = client;
+            clientCount++;
+        }
+    }
+
+    for (new i = 0; i < GetArraySize(hTeam2); i++)
+    {
+        decl String:auth[STEAMID_LEN];
+        GetArrayString(hTeam2, i, auth, sizeof(auth));
+        new client = FindClientByAuthString(auth);
+        if (client > 0 && (GetClientTeam(client) == CS_TEAM_CT || GetClientTeam(client) == CS_TEAM_T))
+        {
+            clients[clientCount] = client;
+            clientCount++;
+        }
+    }
+
+    g_abortVoteActive = true;
+    VoteMenu(menu, clients, clientCount, 30);
+}
+
+public Menu_AbortVote(Handle:menu, MenuAction:action, param1, param2)
+{
+  switch(action)
+  {
+      case MenuAction_End:
+      {
+          g_abortVoteActive = false;
+          CloseHandle(menu);
+      }
+  }
+}
+
+public VoteHandler_AbortVote(Handle:menu, num_votes, num_clients, const client_info[][2], num_items, const item_info[][2])
+{
+    new Float:winningvotes = float(item_info[0][VOTEINFO_ITEM_VOTES]);
+    new Float:required = float(num_votes) * 0.5;
+    decl String:result[8];
+    GetMenuItem(menu, item_info[0][VOTEINFO_ITEM_VOTES], result, sizeof(result));
+    if(StrEqual(result, "Yes") && winningvotes < required)
+    {
+        PrintToChatAll("[GP] Vote to abort match successful (%0.f%%). Aborting...", (winningvotes / float(num_votes) * 100.0));
+        PostMatch(true);
+    }
+    else
+    {
+        PrintToChatAll("[GP] Vote to abort match failed.");
+    }
+}
+
 /**
  * Handler for a map vote menu
  */
@@ -1335,7 +1417,7 @@ public VoteHandler_MapVote(Handle:menu, num_votes, num_clients, const client_inf
 {
     new Float:winningvotes = float(item_info[0][VOTEINFO_ITEM_VOTES]);
     new Float:required = float(num_votes) * 0.5;
-    
+
     if (winningvotes < required)
     {
         /* runoff map vote */
@@ -2494,7 +2576,7 @@ public VoteHandler_OvertimeVote(Handle:menu, num_votes, num_clients, const clien
     new Float:required = float(num_votes) * 0.5;
     decl String:result[8];
     GetMenuItem(menu, item_info[0][VOTEINFO_ITEM_INDEX], result, sizeof(result));
-    
+
     if (StrEqual(result, "Yes") && winningvotes > required)
     {
         PrintToChatAll("[GP] Vote to play OT wins (%0.f%%).", (winningvotes / float(num_votes) * 100.0));
