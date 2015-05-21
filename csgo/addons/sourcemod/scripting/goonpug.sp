@@ -160,6 +160,8 @@ public OnPluginStart()
     RegDotCmd("unready", Command_Unready, "Set yourself as not ready.");
     RegDotCmd("notready", Command_Unready, "Set yourself as not ready.");
     RegDotCmd("abort", Command_VoteAbort, "Start vote to abort match.");
+    RegDotCmd("subct", Command_SubCT, "Request to sub for the CT team.");
+    RegDotCmd("subt", Command_SubT, "Request to sub for the T team.");
 
     RegAdminCmd("sm_lo3", Command_Lo3, ADMFLAG_CHANGEMAP,
                 "Start a live match with the current teams.");
@@ -1052,12 +1054,144 @@ public Action:Command_Ready(client, args)
     return Plugin_Handled;
 }
 
+/**
+ * Starts a vote to abort the game, in case someone leaves during pre-live.
+ */
 public Action:Command_VoteAbort(client, args)
 {
-    if(g_abortVoteActive == false)
+    if(g_matchState == MS_PRE_LIVE)
     {
-        StartAbortVote();
+        if(g_abortVoteActive == false)
+        {
+            StartAbortVote();
+        }
+        else
+        {
+            PrintToChat(client, "[GP] There is already an abort vote in progress.");
+        }
     }
+    else
+    {
+        PrintToChat(client, "[GP] Can only abort matches before they've started.");
+    }
+}
+
+public Menu_SubCT(Handle:menu, MenuAction:action, param1, param2)
+{
+    switch(action)
+    {
+        case MenuAction_Select:
+        {
+            decl String:result[16];
+            GetMenuItem(menu, param2, result, sizeof(result));
+            decl String:clientName[MAX_NAME_LENGTH];
+            GetMenuItem(menu, 2, clientName, sizeof(clientName));
+            new client = FindClientByName(clientName, true);
+            decl String:clientAuth[STEAMID_LEN];
+            GetClientAuthString(client, clientAuth, sizeof(clientAuth));
+
+            if(StrEqual(result, "Accept"))
+            {
+                for(new i = 0; i < GetArraySize(hTeam1); i++)
+                {
+                    decl String:auth[STEAMID_LEN];
+                    GetArrayString(hTeam1, i, auth, sizeof(auth));
+                    new clientToSub = FindClientByAuthString(auth);
+                    if(clientToSub < 0 || !IsValidPlayerForReady(clientToSub))
+                    {
+                        SetArrayString(hTeam1, i, clientAuth);
+                        GpTeam_AssignPlayerTeam(client, GP_TEAM_1);
+                        PrintToChat(client, "[GP] The CT captain accepted your request to sub.");
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                PrintToChat(client, "[GP] The CT captain has declined your request to sub.");
+            }
+        }
+        case MenuAction_End:
+        {
+            CloseHandle(menu);
+        }
+    }
+}
+
+public Menu_SubT(Handle:menu, MenuAction:action, param1, param2)
+{
+    switch(action)
+    {
+        case MenuAction_Select:
+        {
+            decl String:result[16];
+            GetMenuItem(menu, param2, result, sizeof(result));
+            decl String:clientName[MAX_NAME_LENGTH];
+            GetMenuItem(menu, 2, clientName, sizeof(clientName));
+            new client = FindClientByName(clientName, true);
+            decl String:clientAuth[STEAMID_LEN];
+            GetClientAuthString(client, clientAuth, sizeof(clientAuth));
+
+            if(StrEqual(result, "Accept"))
+            {
+                for(new i = 0; i < GetArraySize(hTeam2); i++)
+                {
+                    decl String:auth[STEAMID_LEN];
+                    GetArrayString(hTeam2, i, auth, sizeof(auth));
+                    new clientToSub = FindClientByAuthString(auth);
+                    if(clientToSub < 0 || !IsValidPlayerForReady(clientToSub))
+                    {
+                        SetArrayString(hTeam2, i, clientAuth);
+                        GpTeam_AssignPlayerTeam(client, GP_TEAM_2);
+                        PrintToChat(client, "[GP] The T captain accepted your request to sub.");
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                PrintToChat(client, "[GP] The T captain has declined your request to sub.");
+            }
+        }
+        case MenuAction_End:
+        {
+            CloseHandle(menu);
+        }
+    }
+}
+
+/**
+ * Command to sub for the CT team, in case someone leaves during pre-live.
+ */
+public Action:Command_SubCT(client, args)
+{
+    decl String:clientName[MAX_NAME_LENGTH];
+    GetClientName(client, clientName, sizeof(clientName));
+
+    new Handle:menu = CreateMenu(Menu_SubCT);
+    SetMenuTitle(menu, "%s would like to sub for your team.", clientName);
+    AddMenuItem(menu, "Accept", "Accept");
+    AddMenuItem(menu, "Decline", "Decline");
+    AddMenuItem(menu, clientName, "", ITEMDRAW_IGNORE);
+    SetMenuExitButton(menu, false);
+    DisplayMenu(menu, g_captClients[0], 45);
+}
+
+/**
+ * Command to sub for the T team, in case someone leaves during pre-live.
+ */
+public Action:Command_SubT(client, args)
+{
+    decl String:clientName[MAX_NAME_LENGTH];
+    GetClientName(client, clientName, sizeof(clientName));
+
+    new Handle:menu = CreateMenu(Menu_SubT);
+    SetMenuTitle(menu, "%s would like to sub for your team.", clientName);
+    AddMenuItem(menu, "Accept", "Accept");
+    AddMenuItem(menu, "Decline", "Decline");
+    AddMenuItem(menu, clientName, "", ITEMDRAW_IGNORE);
+    SetMenuExitButton(menu, false);
+    DisplayMenu(menu, g_captClients[1], 45);
 }
 
 /**
@@ -1314,6 +1448,7 @@ Handle:BuildMapVoteMenu()
 StartAbortVote()
 {
     PrintToChatAll("[GP] Vote to abort has been started.");
+
     new Handle:menu = CreateMenu(Menu_AbortVote);
     SetMenuTitle(menu, "Abort match?");
     AddMenuItem(menu, "Yes", "Yes");
